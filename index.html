@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>RUG-B Income Survey</title>
+  </head>
+  <body>
+<svg id="root"></svg>
+<script src="http://d3js.org/d3.v3.min.js" charset="utf-8"></script>
+<script type="text/javascript">
+var radius = 200;
+var color = d3.scale.category20();
+
+var data1 = [
+  20,
+  50,
+  30
+];
+var data2 = [
+  10,
+  20,
+  30,
+  40
+];
+var data3 = [
+  30,
+  40,
+  30
+];
+
+// containers
+var svg = d3.select("#root")
+  .attr("width", radius * 3)
+  .attr("height", radius * 3);
+var g = svg.append("g")
+    .attr("transform", "translate(" + (radius + radius / 2) + "," + (radius + radius / 2) + ")");
+
+// construct default pie layout
+var pie = d3.layout.pie()
+  .value(function(d) { return d; })
+  .sort(function(a, b) { return a < b; });
+
+// construct arc generator
+var arc = d3.svg.arc()
+  .innerRadius(radius / 2)
+  .outerRadius(radius);
+
+// arc generator used to position labels
+var labelArc = d3.svg.arc()
+  .innerRadius(radius)
+  .outerRadius(radius * 1.2);
+
+function render(data) {
+  // add transition to new path
+  g.datum(data).selectAll("path").data(pie).transition().duration(750).attrTween("d", arcTween);
+  // add new paths
+  g.datum(data).selectAll("path").data(pie)
+    .enter().append("path")
+      .attr("fill", function(d, i) { return color(i); })
+      .attr("d", arc)
+      .each(function(d) { this._current = d; });
+  // remove unused data
+  g.datum(data).selectAll("path").data(pie)
+    .exit().remove();
+
+  // labels
+  g.datum(data).selectAll("text").data(pie)
+    .attr("transform", function(d) {
+      return "translate(" + labelArc.centroid(d) + ")";
+    })
+    .attr("text-anchor", function (d, i) {
+      var centroid = labelArc.centroid(d);
+      var midAngle = Math.atan2(centroid[1], centroid[0]);
+      var x = Math.cos(midAngle) * radius * 1.2;
+      return (x > 0) ? "start" : "end";
+    })
+    .text(function(d, i) { return "i: asjflasjflasjf" + i; });
+  // add new labels
+  g.datum(data).selectAll("text").data(pie)
+    .enter().append("text")
+      .attr("text-anchor", function (d, i) {
+        var centroid = labelArc.centroid(d);
+        var midAngle = Math.atan2(centroid[1], centroid[0]);
+        var x = Math.cos(midAngle) * radius * 1.2;
+        return (x > 0) ? "start" : "end";
+      })
+      .style("fill", "black")
+      .style("font", "bold 12px Arial")
+      .attr("transform", function(d) {
+        return "translate(" + labelArc.centroid(d) + ")";
+      })
+      .text(function(d, i) { return "i: asjflasjflasjf" + i; });
+
+  // remove labels
+  g.datum(data).selectAll("text").data(pie)
+    .exit().remove();
+};
+
+function arcTween(a) {
+  var i = d3.interpolate(this._current, a);
+  this._current = i(0);
+  return function(t) {
+    return arc(i(t));
+  };
+};
+
+render(data1);
+
+// arcs.append("text")
+//   .attr("transform", function(d) {
+//     d.innerRadius = 0;
+//     d.outerRadius = radius;
+//     return "translate(" + arc.centroid(d) + ")";
+//   })
+//   .attr("text-anchor", "middle")
+//   .text(function(d, i) {
+//     return "Arc " + i;
+//   });
+</script>
+  </body>
+</html>
+
