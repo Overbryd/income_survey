@@ -5,16 +5,117 @@
     <title>RUG-B Income Survey</title>
   </head>
   <body>
-<svg id="pie"></svg>
-<svg id="root"></svg>
+<div style="width: 960px; margin: 0 auto;">
+  <div>
+    <svg id="root"></svg>
+  </div>
+  <div>
+    <svg id="pie"></svg>
+  </div>
+</div>
+<style>
+text {
+  font: 12px sans-serif;
+}
+.x-axis path,
+.x-axis line {
+  fill: none;
+  stroke: #000;
+  shape-rendering: crispEdges;
+}
+</style>
 <script src="http://d3js.org/d3.v3.min.js" charset="utf-8"></script>
 <script type="text/javascript">
 
+var margin = { top: 0, right: 10, bottom: 0, left: 10 };
+var width = 960 - margin.left - margin.right;
+var height = 200 - margin.top - margin.bottom;
 
+var svg = d3.select("#root")
+  .attr("width", width + margin.left + margin.right)
+  .attr("height", height + margin.top + margin.bottom)
+  .append("g")
+    .attr("translate", "translate(" + margin.left + "," + margin.top + ")");
 
-var svg = d3.select("#root");
-var g = svg.append("g");
+d3.tsv("data.tsv", type, function(error, data) {
+    data = data.filter(function(d) {
+      return /Emplo/.test(d.mode) && d.income >= 10000;
+    });
 
+    var min = d3.min(data, function(d) { return d.income; });
+    var max = d3.max(data, function(d) { return d.income; });
+    var mean = d3.mean(data, function(d) { return d.income; });
+    var median = d3.median(data, function(d) { return d.income });
+
+    svg.append("text")
+      .attr("x", 0)
+      .attr("y", "50%")
+      .attr("text-anchor", "left")
+      .text(min);
+    svg.append("text")
+      .attr("x", "50%")
+      .attr("y", "50%")
+      .attr("text-anchor", "middle")
+      .text(Math.round(mean));
+    var maxText = svg.append("text")
+      .attr("y", "50%")
+      .attr("text-anchor", "right")
+      .text(max);
+    maxText.attr("x", width - maxText.node().getBoundingClientRect().width);
+
+    var q = d3.scale.quantile()
+      .domain(data.map(function(d) { return d.income; }))
+      .range(d3.range(0, 100, 10));
+    var quantiles = q.quantiles().map(function(d) { return Math.round(d); });
+    var range = [min].concat(quantiles).concat([max]);
+    var frequency = [];
+    data.forEach(function(d) {
+      var output = q(d.income);
+      var index = q.range().indexOf(output);
+      console.log(output, index, quantiles[index]);
+      var obj = frequency[index] || { key: quantiles[index], value: 0 };
+      obj.value += 1;
+      frequency[index] = obj;
+    });
+    console.log(range, range.length);
+    console.log(q.range(), q.range().length);
+    console.log("quantiles", quantiles, quantiles.length);
+    console.log(frequency, frequency.length);
+    console.log(d3.sum(frequency), data.length);
+
+    var x = d3.scale.ordinal()
+      .domain(range)
+      .rangeRoundBands([0 , width]);
+
+    var bar = svg.selectAll("g.frequencyBand").data(frequency)
+      .enter().append("g")
+        .attr("class", "frequencyBand")
+        .attr("transform", function(d, i) {
+          var _x = x(d.key);
+          console.log(d.key, _x);
+          _x = _x - x.rangeBand() / 2;
+          return "translate(" + _x + "," + (125 - d.value * 10) + ")"; });
+    bar.append("rect")
+      .attr("fill", "steelblue")
+      .attr("width", function(d, i) { return x.rangeBand(); })
+      .attr("height", function(d, i) { return d.value * 10; });
+
+    var xAxis = d3.svg.axis()
+      .scale(x)
+      .orient("bottom");
+
+    svg.append("g")
+      .attr("class", "x-axis")
+      .attr("transform", "translate(0,125)")
+      .call(xAxis);
+});
+// createdAt, income, experience, mode, hasEquity, companySize, companyLife,
+// hasMonetaryBenefits, vacationDays, monetaryBenefitValue, gender, eductation, age, kids
+function type(d) {
+  d.income = +d.income;
+  d.mode = /Employed/.test(d.mode) ? "Employee" : d.mode;
+  return d;
+};
 
 var PieChart = (function(d3) {
 
@@ -29,13 +130,13 @@ var PieChart = (function(d3) {
     this.padding = options.padding || 25;
     this.options = options;
     // containers
-    var width = this.radius * 2 + this.padding * 2;
-    var height = this.radius * 2 + this.padding * 2;
-    var svg = d3.select(options.selector)
-      .attr("width", width)
-      .attr("height", height);
-    this.g = svg.append("g")
-      .attr("transform", "translate(" + (width / 2) + "," + (height / 2) + ")");
+    this.width = this.radius * 2 + this.padding * 2;
+    this.height = this.radius * 2 + this.padding * 2;
+    this.svg = d3.select(options.selector)
+      .attr("width", this.width)
+      .attr("height", this.height);
+    this.g = this.svg.append("g")
+      .attr("transform", "translate(" + (this.width / 2) + "," + (this.height / 2) + ")");
     // color scale
     this.color = this.options.color || d3.scale.category20();
     // default pie layout
@@ -108,6 +209,17 @@ var PieChart = (function(d3) {
       g.datum(data).selectAll("text").data(pie)
         .exit().remove();
 
+      // add inner label
+      if (this.options.innerLabel) {
+        this.innerLabel = this.innerLabel || this.svg.append("text")
+          .attr("x", "50%")
+          .attr("y", "50%")
+          .attr("class", "innerLabel")
+          .attr("text-anchor", "middle")
+          .attr("dy", ".3em")
+          .style("font", "bold 12px Arial");
+        this.innerLabel.text(this.options.innerLabel);
+      }
       return this;
     } // end render
   };
@@ -132,7 +244,7 @@ var data3 = [
   30
 ];
 
-var pie = new PieChart({selector: "#pie"});
+var pie = new PieChart({selector: "#pie", innerRadius: 50, innerLabel: "experience"});
 pie.render(data1);
 
 </script>
