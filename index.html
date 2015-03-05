@@ -5,114 +5,177 @@
     <title>RUG-B Income Survey</title>
   </head>
   <body>
-<div style="width: 960px; margin: 0 auto;">
-  <div>
-    <svg id="root"></svg>
-  </div>
-  <div>
-    <svg id="pie"></svg>
-  </div>
-</div>
 <style>
+body {
+  font: 12px Arial;
+  margin: 1em auto 4em auto;
+  width: 960px;
+}
 text {
   font: 12px sans-serif;
 }
-.x-axis path,
-.x-axis line {
+.axis path,
+.axis line {
   fill: none;
   stroke: #000;
   shape-rendering: crispEdges;
 }
+g.frequencyBand rect:hover {
+  stroke: #000;
+  shape-rendering: crispEdges;
+}
 </style>
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/2.1.3/jquery.min.js"></script>
 <script src="http://d3js.org/d3.v3.min.js" charset="utf-8"></script>
 <script type="text/javascript">
 
-var margin = { top: 0, right: 10, bottom: 0, left: 10 };
+var Data = (function(d3) {
+  var store = {};
+
+  function load() {
+    var deferred = new $.Deferred();
+    d3.tsv("data.tsv", type, function(error, data) {
+      // filter incoming data
+      data = data.filter(filter);
+      // resolve the deferred
+      deferred.resolve(data);
+    });
+    return deferred.promise();
+  };
+
+  function filter(d) {
+    // return /Emplo/.test(d.mode) && d.income >= 10000;
+    return d.income >= 10000;
+  };
+
+  // createdAt, income, experience, mode, hasEquity, companySize, companyLife,
+  // hasMonetaryBenefits, vacationDays, monetaryBenefitValue, gender, eductation, age, kids
+  function type(d) {
+    d.age = +d.age;
+    d.income = +d.income;
+    d.mode = /Employed/.test(d.mode) ? "Employee" : d.mode;
+    return d;
+  };
+
+  return {
+    load: load,
+    set: function(key, data) {
+      store[key] = data;
+    },
+    get: function(key, data) {
+      return store[key];
+    }
+  };
+})(d3);
+
+var margin = { top: 20, right: 50, bottom: 20, left: 50 };
 var width = 960 - margin.left - margin.right;
 var height = 200 - margin.top - margin.bottom;
 
-var svg = d3.select("#root")
-  .attr("width", width + margin.left + margin.right)
-  .attr("height", height + margin.top + margin.bottom)
+var svg = d3.select("body")
+  .append("svg")
+    .attr("width", width + margin.left + margin.right)
+    .attr("height", height + margin.top + margin.bottom)
   .append("g")
-    .attr("translate", "translate(" + margin.left + "," + margin.top + ")");
+    .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
 
 d3.tsv("data.tsv", type, function(error, data) {
-    data = data.filter(function(d) {
-      return /Emplo/.test(d.mode) && d.income >= 10000;
-    });
+  data = data.filter(function(d) {
+    // return /Emplo/.test(d.mode) && d.income >= 10000;
+    return d.income >= 10000;
+  });
 
-    var min = d3.min(data, function(d) { return d.income; });
-    var max = d3.max(data, function(d) { return d.income; });
-    var mean = d3.mean(data, function(d) { return d.income; });
-    var median = d3.median(data, function(d) { return d.income });
+  var min = d3.min(data, function(d) { return d.income; });
+  var max = d3.max(data, function(d) { return d.income; });
+  var mean = d3.mean(data, function(d) { return d.income; });
+  var median = d3.median(data, function(d) { return d.income });
 
-    svg.append("text")
-      .attr("x", 0)
-      .attr("y", "50%")
-      .attr("text-anchor", "left")
-      .text(min);
-    svg.append("text")
-      .attr("x", "50%")
-      .attr("y", "50%")
-      .attr("text-anchor", "middle")
-      .text(Math.round(mean));
-    var maxText = svg.append("text")
-      .attr("y", "50%")
-      .attr("text-anchor", "right")
-      .text(max);
-    maxText.attr("x", width - maxText.node().getBoundingClientRect().width);
+  var q = d3.scale.quantile()
+    .domain(data.map(function(d) { return d.income; }))
+    .range(d3.range(0, 100, 10));
+  var quantiles = q.quantiles().map(function(d) { return Math.round(d); });
+  var range = [min].concat(quantiles).concat([max]);
+  var frequency = [];
+  data.forEach(function(d) {
+    var output = q(d.income);
+    var index = q.range().indexOf(output);
+    var obj = frequency[index] || { from: range[index], to: range[index+1], value: 0 };
+    obj.value += 1;
+    frequency[index] = obj;
+  });
+  // console.log("q.range", q.range(), q.range().length);
+  // console.log("quantiles", quantiles, quantiles.length);
+  // console.log("range", range, range.length);
+  // console.log("frequency", frequency, frequency.length);
 
-    var q = d3.scale.quantile()
-      .domain(data.map(function(d) { return d.income; }))
-      .range(d3.range(0, 100, 10));
-    var quantiles = q.quantiles().map(function(d) { return Math.round(d); });
-    var range = [min].concat(quantiles).concat([max]);
-    var frequency = [];
-    data.forEach(function(d) {
-      var output = q(d.income);
-      var index = q.range().indexOf(output);
-      console.log(output, index, quantiles[index]);
-      var obj = frequency[index] || { key: quantiles[index], value: 0 };
-      obj.value += 1;
-      frequency[index] = obj;
-    });
-    console.log(range, range.length);
-    console.log(q.range(), q.range().length);
-    console.log("quantiles", quantiles, quantiles.length);
-    console.log(frequency, frequency.length);
-    console.log(d3.sum(frequency), data.length);
+  var barColors = d3.scale.ordinal()
+    .domain(d3.range(range.length))
+    .range(["#FFF59A", "#FBDD5B", "#F7C41B", "#F1AF0F", "#EB9A03", "#E48B05", "#DD7C07", "#C2550C", "#B5420F", "#A72E11"]);
+  var x = d3.scale.ordinal()
+    .domain(range)
+    .rangeRoundBands([0, width]);
+  var yDomain = [d3.min(frequency, function(d) { return d.value; }), d3.max(frequency, function(d) { return d.value; })];
+  var yDomain = [0, d3.max(frequency, function(d) { return d.value; })];
+  var y = d3.scale.linear()
+    .domain(yDomain)
+    .range([height, 0]);
 
-    var x = d3.scale.ordinal()
-      .domain(range)
-      .rangeRoundBands([0 , width]);
+  var bar = svg.selectAll("g.frequencyBand").data(frequency)
+    .enter().append("g")
+      .attr("class", "frequencyBand")
+      .attr("transform", function(d) {
+        return "translate(" + Math.round(x(d.to) - x.rangeBand() / 2) + ",0)";
+      });
 
-    var bar = svg.selectAll("g.frequencyBand").data(frequency)
-      .enter().append("g")
-        .attr("class", "frequencyBand")
-        .attr("transform", function(d, i) {
-          var _x = x(d.key);
-          console.log(d.key, _x);
-          _x = _x - x.rangeBand() / 2;
-          return "translate(" + _x + "," + (125 - d.value * 10) + ")"; });
-    bar.append("rect")
-      .attr("fill", "steelblue")
-      .attr("width", function(d, i) { return x.rangeBand(); })
-      .attr("height", function(d, i) { return d.value * 10; });
+  bar.append("rect")
+    .attr("y", function(d) { return y(d.value); })
+    .attr("width", function(d) { return x.rangeBand() - 1; })
+    .attr("height", function(d) { return height - y(d.value); })
+    .attr("fill", function(d, i) { return barColors(i); });
 
-    var xAxis = d3.svg.axis()
-      .scale(x)
-      .orient("bottom");
+  bar.on("click", function(d, i) { console.log(i, d); });
 
-    svg.append("g")
-      .attr("class", "x-axis")
-      .attr("transform", "translate(0,125)")
-      .call(xAxis);
+  var xAxis = d3.svg.axis()
+    .scale(x)
+    .orient("bottom");
+  var yAxis = d3.svg.axis()
+    .scale(y)
+    .orient("left")
+    .ticks(5);
+
+  svg.append("g")
+    .attr("class", "x axis")
+    .attr("transform", "translate(0," + height + ")")
+    .call(xAxis);
+
+  svg.append("g")
+    .attr("class", "y axis")
+    .call(yAxis);
+
+  // pie charts
+  var ageScale = d3.scale.quantize()
+    .domain([d3.min(data, function(d) { return d.age; }), d3.max(data, function(d) { return d.age; })])
+    .range(d3.range(5));
+  console.log("ageScale", ageScale(25), ageScale(40));
+  var byAge = d3.nest()
+    .key(function(d) { return ageScale(d.age); })
+    .entries(data);
+  console.log(byAge);
+  byAge.forEach(function(entry) {
+    entry.min = d3.min(entry.values, function(d) { return d.age; });
+    entry.max = d3.max(entry.values, function(d) { return d.age; });
+    entry.sum = entry.values.length;
+    entry.percentage = entry.sum / byAge.length;
+  });
+  byAgeChart = new PieChart({ selector: "body" });
+  byAgeChart.render(byAge.map(function(d) { return d.percentage; }));
 });
+
 // createdAt, income, experience, mode, hasEquity, companySize, companyLife,
 // hasMonetaryBenefits, vacationDays, monetaryBenefitValue, gender, eductation, age, kids
 function type(d) {
   d.income = +d.income;
+  d.age = +d.age;
   d.mode = /Employed/.test(d.mode) ? "Employee" : d.mode;
   return d;
 };
@@ -132,7 +195,7 @@ var PieChart = (function(d3) {
     // containers
     this.width = this.radius * 2 + this.padding * 2;
     this.height = this.radius * 2 + this.padding * 2;
-    this.svg = d3.select(options.selector)
+    this.svg = d3.select(options.selector).append("svg")
       .attr("width", this.width)
       .attr("height", this.height);
     this.g = this.svg.append("g")
@@ -244,8 +307,8 @@ var data3 = [
   30
 ];
 
-var pie = new PieChart({selector: "#pie", innerRadius: 50, innerLabel: "experience"});
-pie.render(data1);
+// var pie = new PieChart({selector: "#pie", innerRadius: 50, innerLabel: "experience"});
+// pie.render(data1);
 
 </script>
   </body>
