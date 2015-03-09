@@ -11,6 +11,9 @@ body {
   margin: 1em auto 4em auto;
   width: 960px;
 }
+svg {
+  margin-bottom: 30px;
+}
 text {
   font: 12px sans-serif;
 }
@@ -21,14 +24,20 @@ text {
   shape-rendering: crispEdges;
 }
 g.frequencyBand rect:hover {
+  cursor: pointer;
+}
+g.frequencyBand rect:hover,
+g.frequencyBand.selected rect {
   stroke: #000;
   shape-rendering: crispEdges;
 }
 </style>
-<script src="https://ajax.googleapis.com/ajax/libs/jquery/2.1.3/jquery.min.js"></script>
-<script src="http://d3js.org/d3.v3.min.js" charset="utf-8"></script>
+<h1>RUG-B Income Survey</h1>
+<p>103 participants, only 7 bogus answers</p>
+<p>65 employees, 29 freelancers, 2 interns</p>
+<script src="jquery.min.js"></script>
+<script src="d3.v3.min.js"></script>
 <script type="text/javascript">
-
 var Data = (function(d3) {
   var store = {};
 
@@ -68,6 +77,7 @@ var Data = (function(d3) {
   };
 })(d3);
 
+// let the spagetti feast begin!
 var margin = { top: 20, right: 50, bottom: 20, left: 50 };
 var width = 960 - margin.left - margin.right;
 var height = 200 - margin.top - margin.bottom;
@@ -80,19 +90,18 @@ var svg = d3.select("body")
     .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
 
 d3.tsv("data.tsv", type, function(error, data) {
+  // filter out bogus data
   data = data.filter(function(d) {
-    // return /Emplo/.test(d.mode) && d.income >= 10000;
-    return d.income >= 10000;
+    return d.income >= 10000 && d.age > 11; // && /int/.test(d.mode);
   });
+  console.log("data", data.length);
 
   var min = d3.min(data, function(d) { return d.income; });
   var max = d3.max(data, function(d) { return d.income; });
-  var mean = d3.mean(data, function(d) { return d.income; });
-  var median = d3.median(data, function(d) { return d.income });
 
   var q = d3.scale.quantile()
     .domain(data.map(function(d) { return d.income; }))
-    .range(d3.range(0, 100, 10));
+    .range(d3.range(0, 100, 10)); // DECILES
   var quantiles = q.quantiles().map(function(d) { return Math.round(d); });
   var range = [min].concat(quantiles).concat([max]);
   var frequency = [];
@@ -103,10 +112,6 @@ d3.tsv("data.tsv", type, function(error, data) {
     obj.value += 1;
     frequency[index] = obj;
   });
-  // console.log("q.range", q.range(), q.range().length);
-  // console.log("quantiles", quantiles, quantiles.length);
-  // console.log("range", range, range.length);
-  // console.log("frequency", frequency, frequency.length);
 
   var barColors = d3.scale.ordinal()
     .domain(d3.range(range.length))
@@ -133,7 +138,33 @@ d3.tsv("data.tsv", type, function(error, data) {
     .attr("height", function(d) { return height - y(d.value); })
     .attr("fill", function(d, i) { return barColors(i); });
 
-  bar.on("click", function(d, i) { console.log(i, d); });
+  // filtering based on income
+  var incomeFilter = [];
+  bar.on("click", function(d, i) {
+    var e = d3.select(this);
+    if (/selected/.test(e.attr("class"))) {
+      e.attr("class", e.attr("class").replace(/ selected|selected /, ""));
+      // wow 4 lines of code to remove an element from an array, javascript really nails it
+      var index = incomeFilter.indexOf(d);
+      if (index > -1) {
+        incomeFilter.splice(index, 1);
+      }
+    } else {
+      e.attr("class", e.attr("class") + " selected");
+      incomeFilter.push(d);
+    }
+    var filteredData = data.filter(function(d) {
+      var filter = true;
+      var min = d3.min(incomeFilter, function(d) { return d.from; });
+      var max = d3.max(incomeFilter, function(d) { return d.to; });
+      incomeFilter.forEach(function(band) {
+        filter = filter && d.income >= min && d.income <= max;
+      });
+      return filter;
+    });
+    console.log(filteredData.length);
+    renderPieCharts(filteredData);
+  });
 
   var xAxis = d3.svg.axis()
     .scale(x)
@@ -153,22 +184,62 @@ d3.tsv("data.tsv", type, function(error, data) {
     .call(yAxis);
 
   // pie charts
-  var ageScale = d3.scale.quantize()
-    .domain([d3.min(data, function(d) { return d.age; }), d3.max(data, function(d) { return d.age; })])
-    .range(d3.range(5));
-  console.log("ageScale", ageScale(25), ageScale(40));
-  var byAge = d3.nest()
-    .key(function(d) { return ageScale(d.age); })
-    .entries(data);
-  console.log(byAge);
-  byAge.forEach(function(entry) {
-    entry.min = d3.min(entry.values, function(d) { return d.age; });
-    entry.max = d3.max(entry.values, function(d) { return d.age; });
-    entry.sum = entry.values.length;
-    entry.percentage = entry.sum / byAge.length;
-  });
-  byAgeChart = new PieChart({ selector: "body" });
-  byAgeChart.render(byAge.map(function(d) { return d.percentage; }));
+  // AGE
+  var byAgeChart = theAmazingPie({ innerLabel: "age" });
+  var byExperienceChart = theAmazingPie({ innerLabel: "experience" });
+  var byKidsChart = theAmazingPie({ innerLabel: "kids" });
+  var byModeChart = theAmazingPie({ innerLabel: "mode" });
+  function renderPieCharts(data) {
+    var ageScale = d3.scale.quantize()
+      .domain([d3.min(data, function(d) { return d.age; }), d3.max(data, function(d) { return d.age; })])
+      .range(d3.range(5));
+    var byAge = d3.nest()
+      .key(function(d) { return ageScale(d.age); })
+      .entries(data);
+    byAge.forEach(function(entry) {
+      entry.min = d3.min(entry.values, function(d) { return d.age; });
+      entry.max = d3.max(entry.values, function(d) { return d.age; });
+      entry.sum = entry.values.length;
+      entry.label = entry.min + " - " + entry.max;
+      entry.value = entry.sum / byAge.length;
+    });
+    byAgeChart.update(byAge.map(function(d) { return d.value; }), byAge.map(function(d) { return d.label; }));
+
+    // experience
+    var byExperience = d3.nest()
+      .key(function(d) { return d.experience; })
+      .entries(data);
+    byExperience.forEach(function(entry) {
+      entry.sum = entry.values.length;
+      entry.label = entry.key;
+      entry.value = entry.sum / byExperience.length;
+    });
+    byExperienceChart.update(byExperience.map(function(d) { return d.value; }), byExperience.map(function(d) { return d.label; }));
+
+    // kids
+    var byKids = d3.nest()
+      .key(function(d) { return d.kids; })
+      .entries(data);
+    byKids.forEach(function(entry) {
+      entry.sum = entry.values.length;
+      entry.label = entry.key;
+      entry.value = entry.sum / byKids.length;
+    });
+    byKidsChart.update(byKids.map(function(d) { return d.value; }), byKids.map(function(d) { return d.label; }));
+
+    // mode
+    var byMode = d3.nest()
+      .key(function(d) { return d.mode; })
+      .entries(data);
+    byMode.forEach(function(entry) {
+      entry.sum = entry.values.length;
+      entry.label = entry.key;
+      entry.value = entry.sum / byMode.length;
+    });
+    byModeChart.update(byMode.map(function(d) { return d.value; }), byMode.map(function(d) { return d.label; }));
+  }; // renderPieCharts
+  // render pie charts the first time
+  renderPieCharts(data);
 });
 
 // createdAt, income, experience, mode, hasEquity, companySize, companyLife,
@@ -180,17 +251,18 @@ function type(d) {
   return d;
 };
 
+// My first d3 generalisation, I already dislike it.
 var PieChart = (function(d3) {
 
-  function defaultValue(d) { return d; };
+  function defaultValue(d) { return d.value; };
 
   var PieChart = function(options) {
     options = options || {};
     if (!options.selector) {
       throw("you must provide a 'selector' in options");
     }
-    this.radius = options.radius || 100;
-    this.padding = options.padding || 25;
+    this.radius = options.radius || 110;
+    this.padding = options.padding || 50;
     this.options = options;
     // containers
     this.width = this.radius * 2 + this.padding * 2;
@@ -198,8 +270,6 @@ var PieChart = (function(d3) {
     this.svg = d3.select(options.selector).append("svg")
       .attr("width", this.width)
       .attr("height", this.height);
-    this.g = this.svg.append("g")
-      .attr("transform", "translate(" + (this.width / 2) + "," + (this.height / 2) + ")");
     // color scale
     this.color = this.options.color || d3.scale.category20();
     // default pie layout
@@ -217,7 +287,9 @@ var PieChart = (function(d3) {
   };
 
   PieChart.prototype = {
-    render: function(data) {
+    render: function(data, labels) {
+      this.g = this.g || this.svg.data([data]).append("g")
+        .attr("transform", "translate(" + (this.width / 2) + "," + (this.height / 2) + ")");
       var g = this.g;
       var pie = this.pie;
       var arc = this.arc;
@@ -225,7 +297,7 @@ var PieChart = (function(d3) {
       var color = this.color;
       var radius = this.radius;
       // add transition to new path
-      g.datum(data).selectAll("path").data(pie).transition().duration(750).attrTween("d", function(a) {
+      g.selectAll("path").data(pie).transition().duration(750).attrTween("d", function(a) {
         var i = d3.interpolate(this._current, a);
         this._current = i(0);
         return function(t) {
@@ -233,30 +305,30 @@ var PieChart = (function(d3) {
         };
       });
       // add new paths
-      g.datum(data).selectAll("path").data(pie)
+      g.selectAll("path").data(pie)
         .enter().append("path")
           .attr("fill", function(d, i) { return color(i); })
           .attr("d", arc)
-          .each(function(d) { this._current = d; });
+          .each(function(d) { this._current = d.value; });
       // remove unused data
-      g.datum(data).selectAll("path").data(pie)
+      g.selectAll("path").data(pie)
         .exit().remove();
       // labels
-      g.datum(data).selectAll("text").data(pie)
+      g.selectAll("text").data(pie)
         .attr("transform", function(d) {
           return "translate(" + labelArc.centroid(d) + ")";
         })
-        .attr("text-anchor", function (d, i) {
-          var centroid = labelArc.centroid(d);
+        .attr("text-anchor", function (d) {
+          var centroid = labelArc.centroid(d.value);
           var midAngle = Math.atan2(centroid[1], centroid[0]);
           var x = Math.cos(midAngle) * radius * 1.2;
           return (x > 0) ? "start" : "end";
         })
-        .text(function(d, i) { return "i: asjflasjflasjf" + i; });
+        .text(function(d, i) { return labels[i]; });
       // add new labels
-      g.datum(data).selectAll("text").data(pie)
+      g.selectAll("text").data(pie)
         .enter().append("text")
-          .attr("text-anchor", function (d, i) {
+          .attr("text-anchor", function (d) {
             var centroid = labelArc.centroid(d);
             var midAngle = Math.atan2(centroid[1], centroid[0]);
             var x = Math.cos(midAngle) * radius * 1.2;
@@ -267,9 +339,9 @@ var PieChart = (function(d3) {
           .attr("transform", function(d) {
             return "translate(" + labelArc.centroid(d) + ")";
           })
-          .text(function(d, i) { return "i: asjflasjflasjf" + i; });
+          .text(function(d, i) { return labels[i]; });
       // remove labels
-      g.datum(data).selectAll("text").data(pie)
+      g.selectAll("text").data(pie)
         .exit().remove();
 
       // add inner label
@@ -283,32 +355,390 @@ var PieChart = (function(d3) {
           .style("font", "bold 12px Arial");
         this.innerLabel.text(this.options.innerLabel);
       }
+      this.relaxLabels();
       return this;
-    } // end render
+    }, // end render
+    relaxLabels: function() { // taken from: http://jsfiddle.net/thudfactor/HdwTH/
+      var that = this;
+      var labelLayout = d3.geom.quadtree()
+        .extent([[-that.width,-that.height], [that.width, that.height] ])
+        .x(function(d){return d.x;})
+        .y(function(d){return d.y;})
+        ([]); //create an empty quadtree to hold label positions
+      var maxLabelWidth = 0;
+      var maxLabelHeight = 0;
+      var g = this.g;
+      g.selectAll("text").each(function(d , i) {
+            // Move all calculations into the each function.
+            // Position values are stored in the data object
+            // so can be accessed later when drawing the line
+
+            /* calculate the position of the center marker */
+            var a = (d.startAngle + d.endAngle) / 2 ;
+
+            //trig functions adjusted to use the angle relative
+            //to the "12 o'clock" vector:
+            d.cx = Math.sin(a) * (that.radius - 75);
+            d.cy = -Math.cos(a) * (that.radius - 75);
+
+            /* calculate the default position for the label,
+               so that the middle of the label is centered in the arc*/
+            var bbox = this.getBBox();
+            //bbox.width and bbox.height will
+            //describe the size of the label text
+            var labelRadius = that.radius - 20;
+            d.x =  Math.sin(a) * (labelRadius);
+            d.l = d.x - bbox.width / 2 - 2;
+            d.r = d.x + bbox.width / 2 + 2;
+            d.y = -Math.cos(a) * (that.radius - 20);
+            d.b = d.oy = d.y + 5;
+            d.t = d.y - bbox.height - 5 ;
+
+            /* check whether the default position
+               overlaps any other labels*/
+            var conflicts = [];
+            labelLayout.visit(function(node, x1, y1, x2, y2){
+                //recurse down the tree, adding any overlapping
+                //node is the node in the quadtree,
+                //node.point is the value that we added to the tree
+                //x1,y1,x2,y2 are the bounds of the rectangle that
+                //this node covers
+
+                if (  (x1 > d.r + maxLabelWidth/2)
+                        //left edge of node is to the right of right edge of label
+                    ||(x2 < d.l - maxLabelWidth/2)
+                        //right edge of node is to the left of left edge of label
+                    ||(y1 > d.b + maxLabelHeight/2)
+                        //top (minY) edge of node is greater than the bottom of label
+                    ||(y2 < d.t - maxLabelHeight/2 ) )
+                        //bottom (maxY) edge of node is less than the top of label
+
+                      return true; //don't bother visiting children or checking this node
+
+                var p = node.point;
+                var v = false, h = false;
+                if ( p ) { //p is defined, i.e., there is a value stored in this node
+                    h =  ( ((p.l > d.l) && (p.l <= d.r))
+                       || ((p.r > d.l) && (p.r <= d.r))
+                       || ((p.l < d.l)&&(p.r >=d.r) ) ); //horizontal conflict
+
+                    v =  ( ((p.t > d.t) && (p.t <= d.b))
+                       || ((p.b > d.t) && (p.b <= d.b))
+                       || ((p.t < d.t)&&(p.b >=d.b) ) ); //vertical conflict
+
+                    if (h&&v)
+                        conflicts.push(p); //add to conflict list
+                }
+
+            });
+
+            if (conflicts.length) {
+                // console.log(d, " conflicts with ", conflicts);
+                var rightEdge = d3.max(conflicts, function(d2) {
+                    return d2.r;
+                });
+
+                d.l = rightEdge;
+                d.x = d.l + bbox.width / 2 + 5;
+                d.r = d.l + bbox.width + 10;
+            }
+            else {
+              //console.log("no conflicts for ", d);
+            }
+
+            /* add this label to the quadtree, so it will show up as a conflict
+               for future labels.  */
+            labelLayout.add( d );
+            var maxLabelWidth = Math.max(maxLabelWidth, bbox.width+10);
+            var maxLabelHeight = Math.max(maxLabelHeight, bbox.height+10);
+      });
+    } // end relaxLabels
   };
 
   return PieChart;
 })(d3);
 
-var data1 = [
-  20,
-  50,
-  30
-];
-var data2 = [
-  10,
-  20,
-  30,
-  40
-];
-var data3 = [
-  30,
-  40,
-  30
-];
+// taken from http://jsfiddle.net/Qh9X5/1249/
+var theAmazingPie = (function(options) {
+  var that = {
+    pieTween: function (d, i) {
+      var theOldDataInPie = that.oldPieData;
+      // Interpolate the arcs in data space
+      var s0;
+      var e0;
+      if (theOldDataInPie[i]) {
+        s0 = theOldDataInPie[i].startAngle;
+        e0 = theOldDataInPie[i].endAngle;
+      } else if (!(theOldDataInPie[i]) && theOldDataInPie[i - 1]) {
+        s0 = theOldDataInPie[i - 1].endAngle;
+        e0 = theOldDataInPie[i - 1].endAngle;
+      } else if (!(theOldDataInPie[i - 1]) && theOldDataInPie.length > 0) {
+        s0 = theOldDataInPie[theOldDataInPie.length - 1].endAngle;
+        e0 = theOldDataInPie[theOldDataInPie.length - 1].endAngle;
+      } else {
+        s0 = 0;
+        e0 = 0;
+      }
+      var i = d3.interpolate({
+        startAngle: s0,
+        endAngle: e0
+      }, {
+        startAngle: d.startAngle,
+        endAngle: d.endAngle
+      });
+      return function (t) {
+        var b = i(t);
+        return that.arc(b);
+      };
+    },
+    removePieTween: function (d, i) {
+      s0 = 2 * Math.PI;
+      e0 = 2 * Math.PI;
+      var i = d3.interpolate({
+        startAngle: d.startAngle,
+        endAngle: d.endAngle
+      }, {
+        startAngle: s0,
+        endAngle: e0
+      });
 
-// var pie = new PieChart({selector: "#pie", innerRadius: 50, innerLabel: "experience"});
-// pie.render(data1);
+      return function (t) {
+        var b = i(t);
+        return that.arc(b);
+      };
+    },
+    update: function (dataSet, textLabels) {
+      that.piedata = that.pie(dataSet);
+
+      //create a marker element if it doesn't already exist
+      var defs = that.svg.select("defs");
+      if (defs.empty() ) {
+          defs = that.svg.append("defs");
+      }
+      var marker = defs.select("marker#circ");
+      if (marker.empty() ) {
+          defs.append("marker")
+          .attr("id", "circ")
+          .attr("markerWidth", 6)
+          .attr("markerHeight", 6)
+          .attr("refX", 3)
+          .attr("refY", 3)
+          .append("circle")
+          .attr("cx", 3)
+          .attr("cy", 3)
+          .attr("r", 3);
+      }
+      //Create/select <g> elements to hold the different types of graphics
+      //and keep them in the correct drawing order
+      var pathGroup = that.svg.select("g.piePaths");
+      if (pathGroup.empty() ){
+          pathGroup = that.svg.append("g")
+                     .attr("class", "piePaths");
+      }
+      var pointerGroup = that.svg.select("g.pointers")
+      if (pointerGroup.empty() ) {
+          pointerGroup = that.svg.append("g")
+                         .attr("class", "pointers");
+      }
+      var labelGroup = that.svg.select("g.labels")
+      if (labelGroup.empty() ) {
+          labelGroup = that.svg.append("g")
+                       .attr("class", "labels");
+      }
+      var innerLabel = that.svg.select(".innerLabel");
+      if (innerLabel.empty() ){
+        that.svg.append("g")
+          .attr("class", "innerLabel")
+          .attr("x", "50%")
+          .attr("y", "50%")
+          .append("text")
+            .attr("class", "innerLabel")
+            .attr("text-anchor", "middle")
+            .attr("dy", ".3em")
+            .style("font", "bold 12px Arial")
+            .text(that.innerLabel);
+      }
+
+      that.path = pathGroup.selectAll("path.pie")
+          .data(that.piedata);
+
+      that.path.enter().append("path")
+          .attr("class", "pie")
+          .attr("fill", function (d, i) {
+          return that.color(i);
+      });
+
+      that.path.transition()
+          .duration(300)
+          .attrTween("d", that.pieTween);
+
+      that.path.exit()
+          .transition()
+          .duration(300)
+          .attrTween("d", that.removePieTween)
+          .remove();
+
+      var labels = labelGroup.selectAll("text")
+          .data(that.piedata
+                .sort(function(p1,p2) { return p1.startAngle - p2.startAngle;})
+               );
+      labels.enter()
+          .append("text")
+          .attr("text-anchor", "middle");
+      labels.exit()
+          .remove();
+
+
+      var labelLayout = d3.geom.quadtree()
+          .extent([[-that.width,-that.height], [that.width, that.height] ])
+          .x(function(d){return d.x;})
+          .y(function(d){return d.y;})
+          ([]); //create an empty quadtree to hold label positions
+      var maxLabelWidth = 0;
+      var maxLabelHeight = 0;
+
+      labels.text(function (d, i) {
+          // Set the text *first*, so we can query the size
+          // of the label with .getBBox()
+          return textLabels ? textLabels[i] : d.value;
+      })
+      .each(function (d, i) {
+          // Move all calculations into the each function.
+          // Position values are stored in the data object
+          // so can be accessed later when drawing the line
+
+          /* calculate the position of the center marker */
+          var a = (d.startAngle + d.endAngle) / 2 ;
+
+          //trig functions adjusted to use the angle relative
+          //to the "12 o'clock" vector:
+          d.cx = Math.sin(a) * (that.radius - 75);
+          d.cy = -Math.cos(a) * (that.radius - 75);
+
+          /* calculate the default position for the label,
+             so that the middle of the label is centered in the arc*/
+          var bbox = this.getBBox();
+          //bbox.width and bbox.height will
+          //describe the size of the label text
+          var labelRadius = that.radius - 20;
+          d.x =  Math.sin(a) * (labelRadius);
+          d.l = d.x - bbox.width / 2 - 2;
+          d.r = d.x + bbox.width / 2 + 2;
+          d.y = -Math.cos(a) * (that.radius - 20);
+          d.b = d.oy = d.y + 5;
+          d.t = d.y - bbox.height - 5 ;
+
+          /* check whether the default position
+             overlaps any other labels*/
+          var conflicts = [];
+          labelLayout.visit(function(node, x1, y1, x2, y2){
+              //recurse down the tree, adding any overlapping
+              //node is the node in the quadtree,
+              //node.point is the value that we added to the tree
+              //x1,y1,x2,y2 are the bounds of the rectangle that
+              //this node covers
+
+              if (  (x1 > d.r + maxLabelWidth/2)
+                      //left edge of node is to the right of right edge of label
+                  ||(x2 < d.l - maxLabelWidth/2)
+                      //right edge of node is to the left of left edge of label
+                  ||(y1 > d.b + maxLabelHeight/2)
+                      //top (minY) edge of node is greater than the bottom of label
+                  ||(y2 < d.t - maxLabelHeight/2 ) )
+                      //bottom (maxY) edge of node is less than the top of label
+
+                    return true; //don't bother visiting children or checking this node
+
+              var p = node.point;
+              var v = false, h = false;
+              if ( p ) { //p is defined, i.e., there is a value stored in this node
+                  h =  ( ((p.l > d.l) && (p.l <= d.r))
+                     || ((p.r > d.l) && (p.r <= d.r))
+                     || ((p.l < d.l)&&(p.r >=d.r) ) ); //horizontal conflict
+
+                  v =  ( ((p.t > d.t) && (p.t <= d.b))
+                     || ((p.b > d.t) && (p.b <= d.b))
+                     || ((p.t < d.t)&&(p.b >=d.b) ) ); //vertical conflict
+
+                  if (h&&v)
+                      conflicts.push(p); //add to conflict list
+              }
+
+          });
+
+          if (conflicts.length) {
+              // console.log(d, " conflicts with ", conflicts);
+              var rightEdge = d3.max(conflicts, function(d2) {
+                  return d2.r;
+              });
+
+              d.l = rightEdge;
+              d.x = d.l + bbox.width / 2 + 5;
+              d.r = d.l + bbox.width + 10;
+          }
+          else {
+            //console.log("no conflicts for ", d);
+          }
+
+          /* add this label to the quadtree, so it will show up as a conflict
+             for future labels.  */
+          labelLayout.add( d );
+          var maxLabelWidth = Math.max(maxLabelWidth, bbox.width+10);
+          var maxLabelHeight = Math.max(maxLabelHeight, bbox.height+10);
+
+
+      })
+      .transition()//we can use transitions now!
+      .attr("x", function (d) {
+                  return d.x;
+              })
+              .attr("y", function (d) {
+                  return d.y;
+              });
+
+
+      var pointers = pointerGroup.selectAll("path.pointer")
+          .data(that.piedata);
+      pointers.enter()
+          .append("path")
+          .attr("class", "pointer")
+          .style("fill", "none")
+          .style("stroke", "black")
+          .attr("marker-end", "url(#circ)");
+      pointers.exit().remove();
+
+      pointers.transition().attr("d", function (d) {
+          if (d.cx > d.l) {
+              return "M" + (d.l+2) + "," + d.b + "L" + (d.r-2) + "," + d.b + " " + d.cx + "," + d.cy;
+          } else {
+              return "M" + (d.r-2) + "," + d.b + "L" + (d.l+2) + "," + d.b + " " + d.cx + "," + d.cy;
+          }
+      });
+      that.oldPieData = that.piedata;
+    }
+  };
+
+  options = options || {};
+
+  that.width = 320;
+  that.height = 320;
+  that.radius = Math.min(that.width, that.height) / 2;
+  that.color = d3.scale.category20();
+  that.pie = d3.layout.pie()
+    .sort(null);
+  that.arc = d3.svg.arc()
+    .innerRadius(that.radius - 100)
+    .outerRadius(that.radius - 50);
+  that.svg = d3.select("body").append("svg")
+    .attr("width", that.width)
+    .attr("height", that.height)
+    .append("g")
+      .attr("transform", "translate(" + that.width / 2 + "," + that.height / 2 + ")");
+  that.oldPieData = "";
+  that.innerLabel = options.innerLabel;
+
+  return that;
+});
 
 </script>
   </body>
